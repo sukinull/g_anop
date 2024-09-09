@@ -32,11 +32,14 @@
 #include <sys/ctype.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/kthread.h>
 #include <sys/module.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/proc.h>
 #include <sys/bio.h>
 #include <sys/sbuf.h>
+#include <sys/sched.h>
 #include <sys/sysctl.h>
 #include <sys/malloc.h>
 #include <geom/geom.h>
@@ -192,6 +195,14 @@ g_nop_pass_timeout(void *data)
 	g_nop_pass(gndelay->dl_bio, gp);
 
 	g_free(data);
+}
+
+static void
+anop_kthread(void *arg)
+{
+	//TODO: deal real BIO from sc->bio_queue 
+	G_NOP_DEBUG(0, "Say GOODBYE peacefully...");
+	kproc_exit(0);
 }
 
 static void
@@ -470,6 +481,11 @@ g_nop_create(struct gctl_req *req, struct g_class *mp, struct g_provider *pp,
 
 	mtx_init(&sc->queue_mtx, "anop bio queue", NULL, MTX_DEF);
 	LIST_INSERT_HEAD(&anop_softc_list, sc, list);
+	error = kproc_create(anop_kthread, sc, &sc->sc_work, 0, 0,"%s", pp->name);
+	if (error != 0) {
+		gctl_error(req, "Cannot create kproc %s.", pp->name);
+		goto fail;
+	}
 	
 	newpp->flags |= pp->flags & G_PF_ACCEPT_UNMAPPED;
 	g_error_provider(newpp, 0);

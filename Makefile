@@ -14,18 +14,12 @@ CFLAGS=-g -O0 -g3
 
 test1: md0 load md0.nop xd0 unload
 
-test2:
-	md0
-	load
-	md0.nop
-	unload
+test2: md0 load md0.nop unload 
+	mdconfig -du md0
 
-test3:
-	md0
-	load
-	md0.nop
-	mdconfig -d md0
-	unload
+test3: md0 load md0.nop
+	mdconfig -du md0
+	kldunload -f geom_anop
 
 md0:
 	mdconfig -a -s 64m -u md0 -t malloc -o noasync -o nocache

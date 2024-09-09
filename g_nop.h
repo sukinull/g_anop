@@ -83,6 +83,7 @@ struct g_nop_softc {
 	LIST_ENTRY(g_nop_softc)  list;
 	struct bio_queue_head    bio_queue;
 	struct mtx               queue_mtx;
+	struct proc		*sc_work;
 };
 #endif	/* _KERNEL */
 
