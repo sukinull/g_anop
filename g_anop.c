@@ -41,7 +41,9 @@
 #include <sys/malloc.h>
 #include <geom/geom.h>
 #include <geom/geom_dbg.h>
-#include <geom/nop/g_nop.h>
+#include "g_nop.h"
+
+static LIST_HEAD(, g_nop_softc) anop_softc_list = LIST_HEAD_INITIALIZER(anop_softc_list);
 
 SYSCTL_DECL(_kern_geom);
 static SYSCTL_NODE(_kern_geom, OID_AUTO, nop, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
@@ -466,6 +468,9 @@ g_nop_create(struct gctl_req *req, struct g_class *mp, struct g_provider *pp,
 		goto fail;
 	}
 
+	mtx_init(&sc->queue_mtx, "anop bio queue", NULL, MTX_DEF);
+	LIST_INSERT_HEAD(&anop_softc_list, sc, list);
+	
 	newpp->flags |= pp->flags & G_PF_ACCEPT_UNMAPPED;
 	g_error_provider(newpp, 0);
 	G_NOP_DEBUG(0, "Device %s created.", gp->name);
@@ -476,7 +481,9 @@ fail:
 	g_destroy_consumer(cp);
 	g_destroy_provider(newpp);
 	mtx_destroy(&sc->sc_lock);
+	mtx_destroy(&sc->queue_mtx);
 	free(sc->sc_physpath, M_GEOM);
+	LIST_REMOVE(sc, list);
 	g_free(gp->softc);
 	g_destroy_geom(gp);
 	return (error);
@@ -494,6 +501,9 @@ g_nop_providergone(struct g_provider *pp)
 	gp->softc = NULL;
 	free(sc->sc_physpath, M_GEOM);
 	mtx_destroy(&sc->sc_lock);
+	mtx_destroy(&sc->queue_mtx);
+	free(sc->sc_physpath, M_GEOM);
+	LIST_REMOVE(sc, list);
 	g_free(sc);
 }
 

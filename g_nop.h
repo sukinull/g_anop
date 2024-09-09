@@ -75,6 +75,14 @@ struct g_nop_softc {
 	char			*sc_physpath;
 	struct mtx		 sc_lock;
 	struct g_nop_delay_head	 sc_head_delay;
+
+	unsigned                 flags;
+#define ANOP_SHUTDOWN            0x10000	/* Tell worker thread to terminate. */
+#define	ANOP_EXITING	         0x20000	/* Worker thread is exiting. */
+#define ANOP_PROVIDERGON         0x40000	/* Safe to free the softc */
+	LIST_ENTRY(g_nop_softc)  list;
+	struct bio_queue_head    bio_queue;
+	struct mtx               queue_mtx;
 };
 #endif	/* _KERNEL */
 
