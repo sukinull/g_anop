@@ -192,7 +192,11 @@ g_nop_pass_timeout(void *data)
 	TAILQ_REMOVE(&sc->sc_head_delay, gndelay, dl_next);
 	mtx_unlock(&sc->sc_lock);
 
+	mtx_lock(&sc->queue_mtx);
+	G_NOP_DEBUG(0, "TODO: %s: move g_nop_pass IO to [Add bio to Async BIO queue && wakeup(sc)]", __func__);
+	mtx_unlock(&sc->queue_mtx);
 	g_nop_pass(gndelay->dl_bio, gp);
+	wakeup(sc);
 
 	g_free(data);
 }
@@ -200,9 +204,35 @@ g_nop_pass_timeout(void *data)
 static void
 anop_kthread(void *arg)
 {
-	//TODO: deal real BIO from sc->bio_queue 
-	G_NOP_DEBUG(0, "Say GOODBYE peacefully...");
-	kproc_exit(0);
+	struct g_nop_softc *sc;	
+	struct bio *bp;
+
+	sc = arg;
+	thread_lock(curthread);
+	sched_prio(curthread, PRIBIO);
+	thread_unlock(curthread);
+
+	for(;;) {
+		mtx_lock(&sc->queue_mtx);
+		if (sc->flags & ANOP_SHUTDOWN) {
+			G_NOP_DEBUG(0, "Say GOODBYE peacefully...");
+			sc->flags |= ANOP_EXITING;
+			mtx_unlock(&sc->queue_mtx);
+
+			kproc_exit(0);
+			return;
+		}
+
+		bp = bioq_takefirst(&sc->bio_queue);
+		if (!bp) { 
+			G_NOP_DEBUG(0, "TODO: dealing real BIO ...");
+			// The first arg in mtx_sleep is "channel", shall be paired with wakeup (on same memory address)
+			mtx_sleep(sc, &sc->queue_mtx, PRIBIO | PDROP, "anop wait", 0);
+			continue;
+		}
+		mtx_unlock(&sc->queue_mtx);
+	}
+
 }
 
 static void
@@ -327,7 +357,11 @@ g_nop_start(struct bio *bp)
 		}
 	}
 
+	mtx_lock(&sc->queue_mtx);
+	G_NOP_DEBUG(0, "TODO: %s: move g_nop_pass IO to [Add bio to Async BIO queue && wakeup(sc)]", __func__);
+	mtx_unlock(&sc->queue_mtx);
 	g_nop_pass(cbp, gp);
+	wakeup(sc);
 }
 
 static int
@@ -479,6 +513,7 @@ g_nop_create(struct gctl_req *req, struct g_class *mp, struct g_provider *pp,
 		goto fail;
 	}
 
+	sc->flags = 0;
 	mtx_init(&sc->queue_mtx, "anop bio queue", NULL, MTX_DEF);
 	LIST_INSERT_HEAD(&anop_softc_list, sc, list);
 	error = kproc_create(anop_kthread, sc, &sc->sc_work, 0, 0,"%s", pp->name);
@@ -514,6 +549,14 @@ g_nop_providergone(struct g_provider *pp)
 	KASSERT(TAILQ_EMPTY(&sc->sc_head_delay),
 	    ("delayed request list is not empty"));
 
+	mtx_lock(&sc->queue_mtx);
+	sc->flags |= ANOP_SHUTDOWN;
+	wakeup(sc);
+	while (!(sc->flags & ANOP_EXITING)) {
+		mtx_sleep(sc->sc_work, &sc->queue_mtx, PRIBIO, "g_nop_providergone", hz * 50);
+	}
+	mtx_unlock(&sc->queue_mtx);
+
 	gp->softc = NULL;
 	free(sc->sc_physpath, M_GEOM);
 	mtx_destroy(&sc->sc_lock);
@@ -521,6 +564,7 @@ g_nop_providergone(struct g_provider *pp)
 	free(sc->sc_physpath, M_GEOM);
 	LIST_REMOVE(sc, list);
 	g_free(sc);
+	G_NOP_DEBUG(0, "g_free(sc)");
 }
 
 static int
