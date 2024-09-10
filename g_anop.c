@@ -192,11 +192,14 @@ g_nop_pass_timeout(void *data)
 	TAILQ_REMOVE(&sc->sc_head_delay, gndelay, dl_next);
 	mtx_unlock(&sc->sc_lock);
 
+#ifndef _SYNC
 	mtx_lock(&sc->queue_mtx);
-	G_NOP_DEBUG(0, "TODO: %s: move g_nop_pass IO to [Add bio to Async BIO queue && wakeup(sc)]", __func__);
+	bioq_disksort(&sc->bio_queue, gndelay->dl_bio);
 	mtx_unlock(&sc->queue_mtx);
-	g_nop_pass(gndelay->dl_bio, gp);
 	wakeup(sc);
+#else
+	g_nop_pass(gndelay->dl_bio, gp);
+#endif // _SYNC
 
 	g_free(data);
 }
@@ -205,6 +208,7 @@ static void
 anop_kthread(void *arg)
 {
 	struct g_nop_softc *sc;	
+	struct g_geom *gp;
 	struct bio *bp;
 
 	sc = arg;
@@ -225,11 +229,13 @@ anop_kthread(void *arg)
 
 		bp = bioq_takefirst(&sc->bio_queue);
 		if (!bp) { 
-			G_NOP_DEBUG(0, "TODO: dealing real BIO ...");
 			// The first arg in mtx_sleep is "channel", shall be paired with wakeup (on same memory address)
 			mtx_sleep(sc, &sc->queue_mtx, PRIBIO | PDROP, "anop wait", 0);
 			continue;
 		}
+
+		gp = bp->bio_to->geom;	
+		g_nop_pass(bp, gp);
 		mtx_unlock(&sc->queue_mtx);
 	}
 
@@ -357,11 +363,14 @@ g_nop_start(struct bio *bp)
 		}
 	}
 
+#ifndef _SYNC
 	mtx_lock(&sc->queue_mtx);
-	G_NOP_DEBUG(0, "TODO: %s: move g_nop_pass IO to [Add bio to Async BIO queue && wakeup(sc)]", __func__);
+	bioq_disksort(&sc->bio_queue, cbp);
 	mtx_unlock(&sc->queue_mtx);
-	g_nop_pass(cbp, gp);
 	wakeup(sc);
+#else
+	g_nop_pass(cbp, gp);
+#endif // _SYNC
 }
 
 static int
@@ -564,7 +573,6 @@ g_nop_providergone(struct g_provider *pp)
 	free(sc->sc_physpath, M_GEOM);
 	LIST_REMOVE(sc, list);
 	g_free(sc);
-	G_NOP_DEBUG(0, "g_free(sc)");
 }
 
 static int

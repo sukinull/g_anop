@@ -21,6 +21,8 @@ test3: md0 load md0.nop
 	mdconfig -du md0
 	kldunload -f geom_anop
 
+test4: md0 load md0.nop fio xd0 unload
+
 md0:
 	mdconfig -a -s 64m -u md0 -t malloc -o noasync -o nocache
 	sleep 1
@@ -37,3 +39,5 @@ dd:
         #skip=$(($RANDOM % 1024*1024))
 	dd if=/dev/md0.nop of=/dev/null bs=512 count=1 skip=7
 
+fio:
+	fio --name=randrw --ioengine=posixaio --rw=randrw --rwmixread=70 --direct=1 --numjobs=8 --iodepth=64 --blocksize=4K --filename=/dev/md0.nop
